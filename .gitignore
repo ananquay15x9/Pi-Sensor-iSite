@@ -1,0 +1,8 @@
+# Ignore Tailscale/System scripts
+install-tailscale.sh
+install/
+
+
+# Keep your code
+!python/
+!uhubctl/
