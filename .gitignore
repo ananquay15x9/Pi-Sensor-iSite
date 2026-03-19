@@ -1,8 +1,15 @@
-# Ignore Tailscale/System scripts
-install-tailscale.sh
-install/
+# Ignore all hidden files/folders by default
+.*
 
-
-# Keep your code
+# Un-ignore the specific folders you need
+!Desktop/
+!Documents/
+!Downloads/
+!Music/
+!Pictures/
+!Public/
+!Templates/
+!Videos/
 !python/
 !uhubctl/
+!.gitignore

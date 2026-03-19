@@ -1,0 +1,129 @@
+Pi Setup
+
+### Update libs ###
+sudo apt update
+sudo apt upgrade
+
+### Install JDK8 ###
+sudo apt install openjdk-8-jdk
+sudo apt purge openjdk-8-jre-headless
+sudo apt install openjdk-8-jre-headless
+sudo apt install openjfx
+
+### Install Lib Sodium ###
+Enable debian backports: https://github.com/superjamie/lazyweb/wiki/Raspberry-Pi-Debian-Backports
+
+sudo apt install dirmngr
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E0B11894F66AEC98
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 7638D0442B90D010
+sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 8B48AD6246925553
+
+echo 'deb http://httpredir.debian.org/debian stretch-backports main contrib non-free' | sudo tee -a /etc/apt/sources.list.d/debian-backports.list
+sudo apt-get update
+
+sudo apt -t stretch-backports install libsodium-dev
+
+
+Should install dev headers and libsodium23 (1.0.16)
+
+
+### Install uhubctl ###
+sudo apt-get install libusb-1.0-0-dev
+cd ~/
+git clone https://github.com/mvp/uhubctl.git
+cd uhubctl/
+sudo make
+sudo cp uhubctl /usr/local/bin
+
+
+### Disable overscan ###
+sudo nano /boot/config.txt
+disable_overscan=1
+
+
+### Install NTP ###
+sudo apt install ntp
+
+sudo vi /etc/ntp.conf
+Update server pool to us: 
+
+pool 0.us.pool.ntp.org iburst
+pool 1.us.pool.ntp.org iburst
+pool 2.us.pool.ntp.org iburst
+pool 3.us.pool.ntp.org iburst
+
+
+### Disable other NTP ###
+sudo systemctl daemon-reload
+sudo systemctl stop systemd-timesyncd
+sudo systemctl disable systemd-timesyncd
+
+
+### Make Dir structure and add version 1 ###
+sudo mkdir /opt/isite
+sudo chown -R pi:pi /opt/isite
+cd /opt/isite
+mkdir data
+mkdir media
+mkdir versions
+
+# copy V1 TAR into versions
+ln -snvf /opt/isite/versions/ism-player-1.0.1 /opt/isite/versions/current
+
+
+### Create ism user and make sudo rights ###
+sudo adduser ism
+
+sudo visudo /etc/sudoers.d/ism_player
+
+ism ALL = NOPASSWD:SETENV: /opt/isite/versions/current/bin/ism-player
+
+
+### Disable BT ###
+Use interface
+
+
+### Setup /etc/environment ###
+ISITE_BASE_DIR=/opt/isite
+ISITE_SODIUM_LIB=sodium
+DISPLAY=:0
+ISITE_CONFIG_url=https://my.url
+
+
+### Create systemctl service ###
+
+sudo vi /etc/systemd/system/isite.service
+
+[Unit]
+Description=iSite Media Player
+
+[Service]
+Type=idle
+Restart=always
+RestartSec=10s
+Group=ism
+User=ism
+WorkingDirectory=/opt/isite/versions/current
+EnvironmentFile=/etc/environment
+ExecStart=/opt/isite/versions/current/start_player.sh
+
+[Install]
+WantedBy=multi-user.target
+
+
+### Setup system cron ###
+sudo crontab -e
+
+*/30 * * * * /opt/isite/versions/current/check_player.sh
+
+### Change auto login, Enable iSite, and Reboot ###
+Set background ;)
+
+sudo vi /etc/lightdm/lightdm.conf
+
+Change:
+autologin-user=ism
+
+
+sudo systemctl enable isite
+sudo reboot
