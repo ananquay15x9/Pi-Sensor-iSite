@@ -8,7 +8,7 @@ Wi‑Fi **probe-request** mesh for estimating **people in an area** using multip
 |------|---------|-------------------------|------|
 | **Sensor / MainBrain** | Pi that hosts the UI | Recommended (for `probemon.py` on `mon0`) | `sensor.py`, `probemon.py` |
 | **Listener** | Edge Pis in the space | **Yes** — dongle provides `wlan1` / `mon0` | `sniffer.py` |
-| **Known unit** | Same as listener in your setup | Same | `sniffer.py` |
+| **Known unit** | Same as listener in your setup | No need for Panda dongle | `sniffer.py` |
 
 **Listeners** should use a dedicated dongle (e.g. Panda) so the built‑in Wi‑Fi can stay associated while the dongle captures probes. The **Sensor Pi** also runs local capture with `probemon.py` on its monitor interface.
 
