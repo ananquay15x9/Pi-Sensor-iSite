@@ -48,8 +48,8 @@ PER_MAC_COOLDOWN = 2    # seconds
 
 # ── Listener Pi anchor MACs ───────────────────────────────────────────────────
 LISTENER_PI_MACS = {
-    "9c:ef:d5:f8:9b:c1": "Listener1",
-    "b8:27:eb:21:ff:f2": "Listener2",
+    "9c:ef:d5:f8:9b:c1": "Listener1", #find the mac address for the listener and replace this
+    "b8:27:eb:21:ff:f2": "Listener2", #find the mac address for the listener and replace this
 
 }
 # ───────────────────Non-Phone Filter──────────────────────────────────────────────────────────
