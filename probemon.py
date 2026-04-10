@@ -5,7 +5,7 @@ Brain Pi — Local Probe Sniffer (MainBrain node)
 Scans probe requests on this Pi and reports to the local aggregator (sensor.py).
  
 Usage:
-    sudo python3 probemon.py -i wlan0mon
+    sudo python3 probemon.py -i mon0
 """
 
 import time
@@ -22,8 +22,9 @@ from scapy.all import sniff, Dot11
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
-AGGREGATOR_URL = "http://127.0.0.1:5000/report"
-NODE_ID        = "MainBrain"
+AGGREGATOR_URL = os.environ.get("AGGREGATOR_URL", "http://127.0.0.1:5000/report")
+NODE_ID = os.environ.get("NODE_ID", "MainBrain")
+
 
 CALIBRATION_TIME = timedelta(seconds=10)
 
