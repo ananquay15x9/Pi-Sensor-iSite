@@ -79,24 +79,6 @@ Edit the `NODES` list so it matches the `node` values sent by your reporters (e.
   - `AGGREGATOR_URL` — you will have to find the correct IP address of the Pi you're using as sensor, etc `http://127.0.0.1:5000/report`
   - `NODE_ID` — default `MainBrain`
 
-### `sniffer.py` (each listener)
-
-Set **per device** (use your Sensor Pi’s IP and a unique node id):
-
-```bash
-export BRAIN_URL='http://YOUR_SENSOR_PI_IP:5000/report'
-export NODE_ID='Listener1'   # Listener2, etc.
-sudo -E env "BRAIN_URL=$BRAIN_URL" "NODE_ID=$NODE_ID" \
-  python3 sniffer.py -i mon0
-```
-
-If `sudo -E` does not pass env on your system:
-
-```bash
-sudo env BRAIN_URL='http://192.168.1.50:5000/report' NODE_ID='Listener2' \
-  python3 sniffer.py -i mon0
-```
-
 ## Run (three-Pi example)
 
 ### Sensor Pi (brain + local probes)
