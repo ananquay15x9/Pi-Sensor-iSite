@@ -117,7 +117,7 @@ On the Sensor Pi:
 hostname -I
 ip -4 addr show```
 
-On another machine, try your router’s DHCP client list or (if you use Tailscale/ZeroTier) that product’s admin UI — e.g. Tailscale: `tailscale ip -4` on the Pi.
+On another machine, try your router’s DHCP client list. In my case I use Tailscale to hook it up VPN, but it's up to your preference. You can use local IP address. 
 
 **Example:** If the Pi is `100.124.55.96`, open `http://100.124.55.96:5000/dashboard`. After you clone the project, **your IP will differ** — always substitute `YOUR_SENSOR_PI_IP`.
 
@@ -139,6 +139,3 @@ Area thresholds are at the top of `sensor.py` (e.g. `INSIDE_AVG_RSSI`, `INSIDE_M
 | `sniffer.py` | Listeners: `tshark`, posts to `sensor.py` |
 | `requirements.txt` | Python dependencies |
 
-## License
-
-Specify your license here if applicable.
