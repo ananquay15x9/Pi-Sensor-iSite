@@ -76,7 +76,7 @@ Edit the `NODES` list so it matches the `node` values sent by your reporters (e.
 
 - Set **listener anchor MACs** in `LISTENER_PI_MACS` so the brain can report `ANCHOR:ListenerX` to `sensor.py` (dashboard “anchors” section).
 - Optional environment variables:
-  - `AGGREGATOR_URL` — default `http://127.0.0.1:5000/report`
+  - `AGGREGATOR_URL` — you will have to find the correct IP address of the Pi you're using as sensor, etc `http://127.0.0.1:5000/report`
   - `NODE_ID` — default `MainBrain`
 
 ### `sniffer.py` (each listener)
