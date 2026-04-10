@@ -1,0 +1,11 @@
+# Sensor Pi (sensor.py)
+flask>=3.0.0
+
+# All Pis — probe reporters (probemon.py, sniffer.py)
+requests>=2.31.0
+
+# MainBrain probe capture (probemon.py)
+scapy>=2.5.0
+
+# OUI / vendor lookup (probemon.py, sniffer.py)
+netaddr>=0.10.0
