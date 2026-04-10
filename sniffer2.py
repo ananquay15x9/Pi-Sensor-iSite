@@ -17,7 +17,7 @@ import threading
 from datetime import datetime
 
 # ── Config — edit these per node ─────────────────────────────────────────────
-BRAIN_URL  = "http://100.124.55.96:5000/report"
+BRAIN_URL  = "http://100.124.55.96:5000/report" #replace with your correct Pi sensor IP address
 NODE_ID    = "Listener2"
 RETRY_DELAY = 5
 
