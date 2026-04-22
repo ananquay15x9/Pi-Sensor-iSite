@@ -1,0 +1,68 @@
+{
+  "device": {
+    "id": "MainBrain",
+    "role": "brain",
+    "log_file": "visitors.log",
+    "daily_report_file": "daily_reports.log"
+  },
+  "network": {
+    "nodes": [
+      "MainBrain"
+    ],
+    "edge_devices": [
+      {
+        "id": "Listener1",
+        "mac": "b8:27:eb:3f:1c:3f"
+      },
+      {
+        "id": "Listener2",
+        "mac": "b8:27:eb:21:ff:f2"
+      }
+    ],
+    "blacklisted": []
+  },
+  "thresholds": {
+    "rssi_floor": -63,
+    "inside_avg_rssi": -60,
+    "inside_min_best_rssi": -58,
+    "inside_min_sightings": 1,
+    "inside_min_nodes": 1,
+    "inside_confirm_window": 1,
+    "inside_confirm_min_passes": 1,
+    "visitor_timeout_sec": 60,
+    "zone_close": -40,
+    "zone_nearby": -60,
+    "_tuning_guide": {
+      "rssi_floor": "GATE 1 - Hard cutoff. Raise (e.g. -75 to -65) if too many background devices are detected. Lower (e.g. -65 to -75) if phones inside are missed entirely.",
+      "inside_avg_rssi": "GATE 2 - Room average. Lower this (e.g. -68 to -72) if phones are detected but never reach 'inside' status.",
+      "inside_min_best_rssi": "GATE 3 - Strongest node floor. At 9-10ft mounting expect -62 to -70 from pocketed phones. Lower if inside count is consistently low despite good coverage."
+    }
+  },
+  "merge": {
+    "window_sec": 4,
+    "rssi_tolerance": 4
+  },
+  "occupancy": {
+    "window_minutes": 10,
+    "sample_sec": 5,
+    "history_max_points": 10000,
+    "impression_retention_minutes": 1440
+  },
+  "console": {
+    "refresh_sec": 5,
+    "color": true,
+    "debug": false
+  },
+  "http": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 5000,
+    "_note": "enabled=false: no server, console-only. enabled=true: binds to host (127.0.0.1 = local only, 0.0.0.0 = network-visible)"
+  },
+  "hopping": {
+    "_note": "Channel hopping settings for probemon.py (local collector)",
+    "home_interface": "wlan1",
+    "home_dwell_sec": 0.4,
+    "visit_dwell_sec": 0.12
+  }
+}
