@@ -146,7 +146,7 @@ Use for tuning, not for reporting.
 How many times any device transitioned to "inside" state. Also inflated by
 MAC rotation. Use for tuning, not for reporting.
 
-> **In plain English:** People Inside is your live occupancy estimate.
+> **In plain English:** People Inside is our live occupancy estimate.
 > MAC Records and Inside Transitions are debug counters, not unique-person counts.
 
 ---
