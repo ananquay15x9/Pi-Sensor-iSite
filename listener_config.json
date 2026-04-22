@@ -1,0 +1,32 @@
+{
+	"device": {
+		"id": "Listener1",
+    	"role": "listener"
+  	},
+	"transport": {
+		"type": "http",
+		"report_url": "http://100.124.55.96:5000/report",
+		"timeout_sec": 1,
+		"retry_delay_sec": 5
+	},
+	"capture": {
+		"interface": "mon0",
+		"rssi_floor": -75
+	},
+	"hopping": {
+		"home_interface": "wlan1",
+		"home_dwell_sec": 0.40,
+		"visit_dwell_sec": 0.12
+	},
+	"filter": {
+		"non_phone_keywords": [
+			"intel", "hewlett", "dell", "lenovo", "apple mac",
+			"canon", "epson", "brother", "xerox", "lexmark", "ricoh", "kyocera",
+			"cisco", "ubiquiti", "tp-link", "netgear", "asus", "aruba",
+			"ruckus", "d-link", "zyxel", "mikrotik", "juniper",
+			"amazon", "roku", "nvidia", "microsoft", "belkin",
+			"espressif", "murata", "texas instru"
+		],
+		"blacklisted_macs": []
+	}
+}
