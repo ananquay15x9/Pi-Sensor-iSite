@@ -174,7 +174,42 @@ At least one node must hear the phone stronger than this.
 "inside_avg_rssi":      -68,
 "inside_min_best_rssi": -65
 ```
+---
+## beacon.py exists — the WiFi traffic problem
 
+### The idle Pi problem
+
+A Pi connected to WiFi and sitting idle transmits very little on its own.
+Once associated, it has no reason to send probe request frames — those are
+only broadcast when a device is **searching** for networks. A quiet idle Pi
+can go several minutes without emitting a single frame the Panda dongle
+would capture in monitor mode.
+
+
+### What beacon.py does
+
+`beacon.py` runs `iw dev wlan0 scan freq <2.4GHz frequencies>` every 3
+seconds. This triggers an **active scan**, so we guarantee the sensor receives a
+steady probe frames from this Pi - enough to build a reliable RSSI median
+over the 10-minute window (~200 samples).
+We use 2.4 GHz specifically because the Panda dongle operates on 2.4 GHz only
+even though a Pi can scans on 5 GHz.
+
+
+### MAC address matching — the easy mistake to miss
+
+beacon.py prints its MAC address on startup. That MAC **must** match the
+entry in config.json on the sensor Pi under `network.edge_devices`. If they
+don't match, the sensor sees the probe frames but doesn't recognise them as
+calibration beacons — they get treated as unknown devices and excluded from
+threshold computation. The calibration result will show
+`"edge_devices_observed": {}` with zero samples.
+
+```json
+"edge_devices": [
+  { "id": "Listener1", "mac": "<wlan0 MAC from beacon.py output>" }
+]
+```
 ---
 
 ## Known limitations
