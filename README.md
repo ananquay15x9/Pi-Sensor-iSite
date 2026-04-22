@@ -1,141 +1,235 @@
-# Pi-Sensor-iSite
+# iSite Sensor
 
-Wi‑Fi **probe-request** mesh for estimating **people in an area** using multiple Raspberry Pis. One Pi runs the **aggregator + dashboard** (`sensor.py`); the others **listen** on monitor mode and POST sightings to the brain.
+Detects people in a defined space by passively listening for WiFi probe
+requests that phones broadcast automatically.
 
-## Hardware roles
+---
 
-| Role | Machine | USB Wi‑Fi (e.g. Panda) | Runs |
-|------|---------|-------------------------|------|
-| **Sensor / MainBrain** | Pi that hosts the UI | Recommended (for `probemon.py` on `mon0`) | `sensor.py`, `probemon.py` |
-| **Listener** | Edge Pis in the space | **Yes** — dongle provides `wlan1` / `mon0` | `sniffer.py` |
-| **Known unit** | Same as listener in your setup | No need for Panda dongle | `sniffer.py` |
+## How it works
 
-**Listeners** should use a dedicated dongle (e.g. Panda) so the built‑in Wi‑Fi can stay associated while the dongle captures probes. The **Sensor Pi** also runs local capture with `probemon.py` on its monitor interface.
+Every phone with WiFi enabled periodically broadcasts "probe request" frames
+looking for known networks. These frames are visible to any adapter in
+monitor mode. This system captures those frames, filters out non-phones,
+and estimates how many people are currently inside a defined area.
+The system counts presence, not identity.
 
-## Prerequisites (each Pi)
+---
 
-- Raspberry Pi OS (or similar), Python 3.10+
-- `iw`, `ip`, wireless tools
-- **Listener / MainBrain capture:** Wireshark command line — install **tshark** on listener Pis (`sniffer.py`), and system deps for **Scapy** on the MainBrain (`probemon.py`)
+## Deployment shape
 
-```bash
-sudo apt update
-sudo apt install -y python3-pip python3-venv iw wireshark-common
-# Optional: libpcap for scapy
-sudo apt install -y libpcap0.8
+### Deployed restroom unit (permanent)
+
+One Raspberry Pi with one Panda WiFi dongle.
+
+```
+main.py       ← brain / aggregator / HTTP server
+engine.py     ← all detection logic
+config.py     ← config loader
+console.py    ← terminal display + dashboard HTML (if enabled)
+utils.py      ← shared helpers
+probemon.py   ← local packet sniffer (runs separately, sudo required)
+config.json   ← the one file operators edit
 ```
 
-Clone and install Python deps:
+### Temporary calibration kit (setup only, not deployed)
 
-```bash
-git clone https://github.com/ananquay15x9/Pi-Sensor-iSite.git
-cd Pi-Sensor-iSite
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+Raspberry Pis running `beacon.py`. Placed at the room boundary during
+the 10-minute calibration run, then removed.
+
+```
+beacon.py     ← forces 2.4GHz probe requests so sensor can measure their RSSI
 ```
 
-`sudo python3 …` often uses **system** Python. Either install deps globally:
+---
 
+## Normal startup (production)
+Before starting, ensure mon0 exists:
 ```bash
-pip install --user -r requirements.txt
-# or
-sudo pip install --break-system-packages -r requirements.txt
-```
-
-…or run sniffer/probemon with the venv interpreter under sudo:
-
-```bash
-sudo /path/to/Pi-Sensor-iSite/.venv/bin/python3 sniffer.py -i mon0
-```
-
-## Monitor interface (listeners + MainBrain)
-
-On Pis that capture probes, create monitor mode on the **dongle** interface (your setup uses `wlan1` → `mon0`):
-
-```bash
-sudo iw dev wlan1 interface add mon0 type monitor
+sudo iw dev wlan1 interface add mon0 type monitor 2>/dev/null
 sudo ip link set mon0 up
 ```
-
-Confirm:
-
+Then, run this:
 ```bash
-iw dev
-```
+# Terminal 1 — brain + aggregator
+python3 main.py
 
-> Names can differ (`wlan0`, `wlan1`). Use the interface that belongs to the **capture** adapter.
-
-## Configure node names and brain URL
-
-### `sensor.py` (Sensor Pi only)
-
-Edit the `NODES` list so it matches the `node` values sent by your reporters (e.g. `MainBrain`, `Listener1`, `Listener2`).
-
-### `probemon.py` (MainBrain)
-
-- Set **listener anchor MACs** in `LISTENER_PI_MACS` so the brain can report `ANCHOR:ListenerX` to `sensor.py` (dashboard “anchors” section).
-- Optional environment variables:
-  - `AGGREGATOR_URL` — you will have to find the correct IP address of the Pi you're using as sensor, etc `http://127.0.0.1:5000/report`
-  - `NODE_ID` — default `MainBrain`
-
-## Run (three-Pi example)
-
-### Sensor Pi (brain + local probes)
-
-```bash
-pkill -f sensor.py 2>/dev/null; pkill -f probemon.py 2>/dev/null
-python3 sensor.py
-```
-
-In a **second** terminal (after `mon0` is up):
-
-```bash
+# Terminal 2 — local packet sniffer (requires root)
 sudo python3 probemon.py -i mon0
 ```
 
-### Each listener Pi
+
+
+---
+
+## Calibration flow
+
+Calibration computes realistic RSSI thresholds for the specific room.
+Run it every time we deploy in a new space.
 
 ```bash
-sudo python3 sniffer.py -i mon0
+# 1. Place calibration Pis at the room boundary (doorway / far corners)
+#    Run on each calibration Pi:
+sudo python3 beacon.py
+
+# 2. On the sensor Pi — two terminals simultaneously:
+python3 main.py --config 10
+sudo python3 probemon.py -i mon0
+
+# 3. Wait 10 minutes. Calibration exits automatically.
+# 4. Review config.json — thresholds are updated automatically.
+# 5. Manually verify thresholds make sense (see Threshold Tuning below).
+# 6. Edit the config.json if RSSI thresholds need to be adjusted.
+# 7. Remove calibration Pis.
+# 8. Start normal production mode.
 ```
 
-(with `BRAIN_URL` and `NODE_ID` set as above)
+Calibration anchors thresholds to the **weakest** edge device — the one
+furthest from the sensor. This correctly defines the room boundary.
 
-## Dashboard
+**Important:** restart both `main.py` and `probemon.py` after any config.json
+change. Both load config once at startup.
 
-The web UI is served by Flask on port **5000**:
+---
 
-- `http://YOUR_SENSOR_PI_IP:5000/dashboard`
-- JSON: `http://YOUR_SENSOR_PI_IP:5000/summary`
+## Viewing the dashboard
 
-### Find your Sensor Pi IP
-
-On the Sensor Pi:
+The dashboard is disabled by default in production (`http.enabled = false`).
+To view it safely without exposing the Pi to the venue network:
 
 ```bash
-hostname -I
-ip -4 addr show```
+# On your laptop — create SSH tunnel
+ssh -L 5000:127.0.0.1:5000 sensor@<tailscale-ip>
 
-On another machine, try your router’s DHCP client list. In my case I use Tailscale to hook it up VPN, but it's up to your preference. You can use local IP address. 
+# Then open in browser
+http://localhost:5000/dashboard
+```
 
-**Example:** If the Pi is `100.124.55.96`, open `http://100.124.55.96:5000/dashboard`. After you clone the project, **your IP will differ** — always substitute `YOUR_SENSOR_PI_IP`.
+Enable it in config.json:
+```json
+"http": {
+  "enabled": true,
+  "host": "127.0.0.1",
+  "port": 5000
+}
+```
 
-## Data / persistence
+**Never set `host` to `"0.0.0.0"` at a venue.** That exposes the server
+on the venue's WiFi network.
 
-- **RSSIs and visitor state** are kept **in memory** while `sensor.py` runs; restart clears live state.
-- **Event text lines** append to `visitors.log` in the current working directory (if enabled in code) — useful for a coarse history, not a full database.
+> **Note:** Even when `http.enabled = false`, an internal loopback server
+> always runs on `127.0.0.1:5000`. This is required — `probemon.py` sends
+> probe reports to that address. The `http.enabled` flag controls only
+> whether the dashboard is accessible, not whether the internal transport works.
 
-## Tuning “inside” / RSSI
+---
 
-Area thresholds are at the top of `sensor.py` (e.g. `INSIDE_AVG_RSSI`, `INSIDE_MIN_BEST_RSSI`). You can override many with **environment variables** — see comments in `sensor.py` near `env_int` / `INSIDE_*`.
+## What each metric means
 
-## Repository layout
+### People Inside 
+Live estimate of phones currently inside the defined area. Updated every
+few seconds. This is the primary operational metric.
 
-| File | Purpose |
-|------|---------|
-| `sensor.py` | Aggregator, REST `/report`, dashboard |
-| `probemon.py` | MainBrain: Scapy sniff, posts to `sensor.py` |
-| `sniffer.py` | Listeners: `tshark`, posts to `sensor.py` |
-| `requirements.txt` | Python dependencies |
+### Peak / Avg / Impressions
+Rolling window stats (default 10 minutes). Useful for post-event reporting.
+Peak = highest simultaneous count. Impressions = how many times a device
+transitioned to "inside" during the window.
 
+### MAC Records (debug)
+How many unique MAC address records the engine has created since startup.
+This is **not** a people count. Modern phones rotate their MAC address every
+few minutes, so one phone can generate many MAC records over an hour.
+Use for tuning, not for reporting.
+
+### Inside Transitions (debug)
+How many times any device transitioned to "inside" state. Also inflated by
+MAC rotation. Use for tuning, not for reporting.
+
+> **In plain English:** People Inside is your live occupancy estimate.
+> MAC Records and Inside Transitions are debug counters, not unique-person counts.
+
+---
+
+## Threshold tuning
+
+Three thresholds control what counts as "inside." All in config.json under
+`"thresholds"`. Adjust after calibration if the auto-computed values are off.
+
+### `rssi_floor` — Gate 1, hard cutoff
+Signals weaker than this are dropped before any processing.
+- Too many outside/background devices counted? → **raise/tighten** (e.g. -63 → -58)
+- Phones inside being missed entirely? → **lower/loosen** (e.g. -63 → -70)
+
+### `inside_avg_rssi` — Gate 2, room average
+The median-of-node-medians RSSI must clear this to count as inside.
+- Phones detected but never reach "inside"? → **loosen** (e.g. -60 → -65)
+
+### `inside_min_best_rssi` — Gate 3, closest node floor
+At least one node must hear the phone stronger than this.
+- At 9-10ft mounting height, pocketed phones typically read -62 to -70 dBm.
+- Inside count is low? → **loosen** (e.g. -58 → -63)
+
+**Safe starting values:**
+```json
+"rssi_floor":           -75,
+"inside_avg_rssi":      -68,
+"inside_min_best_rssi": -65
+```
+
+---
+
+## Known limitations
+
+**Randomized MAC churn**
+Modern iOS and Android devices use MAC aeddress randomization during Wi-Fi probe scanning. 
+As a result, a single physical phone may appear as multiple MAC addresses over time.
+The scripts apply time and signal-based merging to reduce duplication, but this cannot
+fully eliminate MAC churn, especially in crowded environments.
+Occupancy is therfore an estimate, not an exact count. The accuracy may vary depending on crowd
+density, movement, and layout. 
+
+**Totals are not unique people**
+MAC Records and Inside Transitions inflate over time due to MAC rotation.
+Do not use them as people counts in reports. Use People Inside (live) and
+Impressions (rolling window).
+
+
+
+**Probe request frequency varies by OS**
+iOS phones with screen off probe rarely (every 1-5 minutes).
+Android phones probe more frequently.
+A phone sitting quietly may timeout and reappear as a "new" device.
+`visitor_timeout_sec` (default 60s) controls how long we wait before
+considering a device gone.
+
+---
+
+## File reference
+
+| File | Lives on | Purpose |
+|---|---|---|
+| `main.py` | Sensor Pi | Runner — local transport layer, calibration mode |
+| `engine.py` | Sensor Pi | All detection logic — imported by main.py |
+| `config.py` | Sensor Pi | Config loader — imported by main.py |
+| `console.py` | Sensor Pi | Terminal display + dashboard HTML (if enabled) — imported by main.py |
+| `utils.py` | Sensor Pi | Shared helpers — imported by engine + console |
+| `probemon.py` | Sensor Pi | Local packet sniffer — run separately with sudo |
+| `config.json` | Sensor Pi | The one file operators edit |
+| `beacon.py` | Calibration Pis | Forces 2.4GHz probe bursts during calibration |
+
+---
+
+## This script is based on the original script.
+
+Key differences:
+
+| Original | Current Script |
+|---|---|
+| Single script, no config file | Modular: engine / config / console / transport |
+| Hardcoded thresholds | Config-driven, auto-calibrated per room |
+| No HTTP transport | Internal loopback + optional dashboard |
+| fuzzywuzzy for brand matching | OUI keyword filter + randomized MAC detection |
+| Python 2 | Python 3.13 |
+| Config mode = blacklist only | Config mode = blacklist + RSSI threshold derivation |
+| No MAC rotation handling | Rotation detection via RSSI group matching |
+| No occupancy history | Rolling occupancy window, peak, avg, impressions |
+| No anchor/edge device concept | Temporary calibration Pis define room boundary |
