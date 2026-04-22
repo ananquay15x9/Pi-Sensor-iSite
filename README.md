@@ -5,6 +5,21 @@ requests that phones broadcast automatically.
 
 ---
 
+
+## File reference
+
+| File | Lives on | Purpose |
+|---|---|---|
+| `main.py` | Sensor Pi | Runner — local transport layer, calibration mode |
+| `engine.py` | Sensor Pi | All detection logic — imported by main.py |
+| `config.py` | Sensor Pi | Config loader — imported by main.py |
+| `console.py` | Sensor Pi | Terminal display + dashboard HTML (if enabled) — imported by main.py |
+| `utils.py` | Sensor Pi | Shared helpers — imported by engine + console |
+| `probemon.py` | Sensor Pi | Local packet sniffer — run separately with sudo |
+| `config.json` | Sensor Pi | The one file operators edit |
+| `beacon.py` | Edge devices / Calibration Pis | Forces 2.4GHz probe bursts during calibration |
+
+---
 ## How it works
 
 Every phone with WiFi enabled periodically broadcasts "probe request" frames
@@ -238,20 +253,7 @@ A phone sitting quietly may timeout and reappear as a "new" device.
 `visitor_timeout_sec` (default 60s) controls how long we wait before
 considering a device gone.
 
----
 
-## File reference
-
-| File | Lives on | Purpose |
-|---|---|---|
-| `main.py` | Sensor Pi | Runner — local transport layer, calibration mode |
-| `engine.py` | Sensor Pi | All detection logic — imported by main.py |
-| `config.py` | Sensor Pi | Config loader — imported by main.py |
-| `console.py` | Sensor Pi | Terminal display + dashboard HTML (if enabled) — imported by main.py |
-| `utils.py` | Sensor Pi | Shared helpers — imported by engine + console |
-| `probemon.py` | Sensor Pi | Local packet sniffer — run separately with sudo |
-| `config.json` | Sensor Pi | The one file operators edit |
-| `beacon.py` | Edge devices / Calibration Pis | Forces 2.4GHz probe bursts during calibration |
 
 ---
 
