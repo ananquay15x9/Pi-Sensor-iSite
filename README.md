@@ -251,7 +251,7 @@ considering a device gone.
 | `utils.py` | Sensor Pi | Shared helpers — imported by engine + console |
 | `probemon.py` | Sensor Pi | Local packet sniffer — run separately with sudo |
 | `config.json` | Sensor Pi | The one file operators edit |
-| `beacon.py` | Calibration Pis | Forces 2.4GHz probe bursts during calibration |
+| `beacon.py` | Edge devices / Calibration Pis | Forces 2.4GHz probe bursts during calibration |
 
 ---
 
