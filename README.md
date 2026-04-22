@@ -22,13 +22,15 @@ The system counts presence, not identity.
 One Raspberry Pi with one Panda WiFi dongle.
 
 ```
-main.py       ← brain / aggregator / HTTP server
-engine.py     ← all detection logic
-config.py     ← config loader
-console.py    ← terminal display + dashboard HTML (if enabled)
-utils.py      ← shared helpers
-probemon.py   ← local packet sniffer (runs separately, sudo required)
-config.json   ← the one file operators edit
+main.py                ← brain / aggregator / HTTP server
+engine.py              ← all detection logic
+config.py              ← config loader
+console.py             ← terminal display + dashboard HTML (if enabled)
+utils.py               ← shared helpers
+probemon.py            ← local packet sniffer (runs separately, sudo required)
+config.json            ← the one file operators edit
+beacon.py              ← wifi probe frames
+listener_config.json   ← edge device config
 ```
 
 ### Temporary calibration kit (setup only, not deployed)
