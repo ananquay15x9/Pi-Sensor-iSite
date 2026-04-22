@@ -1,98 +1,72 @@
 #!/usr/bin/python3
 
 """
-Brain Pi — Local Probe Sniffer (MainBrain node)
-Scans probe requests on this Pi and reports to the local aggregator (sensor.py).
- 
-Usage:
+probemon.py - local ping collector
+reads all settings from config.json 
+
+usage:
     sudo python3 probemon.py -i mon0
 """
 
-import time
-import subprocess
-import threading
-import signal
-import os
 import argparse
-import requests
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
 import logging
+import requests
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from scapy.all import sniff, Dot11
-
-
-# ── Config ────────────────────────────────────────────────────────────────────
-AGGREGATOR_URL = os.environ.get("AGGREGATOR_URL", "http://127.0.0.1:5000/report")
-NODE_ID = os.environ.get("NODE_ID", "MainBrain")
-
-
-CALIBRATION_TIME = timedelta(seconds=10)
-
-#  clear per-device memory
-DEVICE_TTL     = timedelta(minutes=2)
-
-#MAC rotation grouping
-GROUP_WINDOW_SEC = 4
-RSSI_TOLERANCE   = 3 #dbm
-
-#devices weaker than this means they're outside the area
-RSSI_FLOOR       = -75  # dBm
-
-# don't count the same device more than once
-PER_MAC_COOLDOWN = 2    # seconds
-
-# channel hopping
-#HOP_CHANNELS  = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-#HOP_INTERVAL  = 0.3   # seconds per channel
-
-
-# ── Listener Pi anchor MACs ───────────────────────────────────────────────────
-LISTENER_PI_MACS = {
-    "9c:ef:d5:f8:9b:c1": "Listener1", #find the mac address for the listener and replace this
-    "b8:27:eb:21:ff:f2": "Listener2", #find the mac address for the listener and replace this
-
-}
-# ───────────────────Non-Phone Filter──────────────────────────────────────────────────────────
  
-NON_PHONE_KEYWORDS = [
-    # computers / peripherals
-    'intel', 'hewlett', 'dell', 'lenovo', 'apple mac',
-    # printers / scanners
-    'canon', 'epson', 'brother', 'xerox', 'lexmark', 'ricoh', 'kyocera',
-    # networking gear
-    'cisco', 'ubiquiti', 'tp-link', 'netgear', 'asus', 'aruba',
-    'ruckus', 'd-link', 'zyxel', 'mikrotik', 'juniper',
-    # streaming / smart TV / IoT
-    'amazon', 'roku', 'nvidia', 'microsoft', 'belkin',
-    'espressif',   # ESP8266/ESP32 IoT modules
-    'murata',      # IoT modules
-    'texas instru',
-    'Hon Hai',     # Foxconn — often laptops
-]
+import config as cfg_mod
+ 
+#  ── setup ─────────────────────────────────────────────────────────────────────
+def build_settings(cfg: dict) -> dict:
+    """ 
+    Pull all probemon settings from config.json into one flat dict
+    """
+    t = cfg["thresholds"]
+    m = cfg["merge"]
+    return {
+        "node_id":          cfg["device"]["id"],
+        "aggregator_url":   "http://127.0.0.1:5000/report",
+        "rssi_floor":       t["rssi_floor"],
+        "merge_window_sec": m["window_sec"],
+        "rssi_tolerance":   m["rssi_tolerance"],
+        "per_mac_cooldown": 2,       # seconds — rate limit per MAC
+        "device_ttl_min":   2,       # minutes — rolling memory window
+        "calibration_sec":  10,      # warm-up period
+        "non_phone_keywords": [
+            "intel", "hewlett", "dell", "lenovo", "apple mac",
+            "canon", "epson", "brother", "xerox", "lexmark", "ricoh", "kyocera",
+            "cisco", "ubiquiti", "tp-link", "netgear", "asus", "aruba",
+            "ruckus", "d-link", "zyxel", "mikrotik", "juniper",
+            "amazon", "roku", "nvidia", "microsoft", "belkin",
+            "espressif", "murata", "texas instru", "hon hai",
+        ],
+        "blacklisted_macs": cfg_mod.get_blacklisted_macs(cfg),
+        "edge_macs":        cfg_mod.get_edge_device_macs(cfg),  # mac -> label
+        "pi_ouis":          cfg_mod.get_raspberry_pi_ouis(),
+        "hopping": {
+            "home_interface":   "wlan1",
+            "home_dwell_sec":   cfg["hopping"]["home_dwell_sec"]
+                                if "hopping" in cfg else 0.40,
+            "visit_dwell_sec":  cfg["hopping"]["visit_dwell_sec"]
+                                if "hopping" in cfg else 0.12,
+        },
+    }
+    
 
-# MACs to always ignore regardless of OUI
-BLACKLIST_MACS = {
-    # '00:11:22:33:44:55',
-}
-
-# ── State ─────────────────────────────────────────────────────────────────────
-devices       = {}
-last_seen     = {}
-active_groups = []
-start_time    = datetime.now()
-in_calibration = True
-segment_start  = None
-# ── State ─────────────────────────────────────────────────────────────────────
-
-
+# ── helpers ───────────────────────────────────────────────────────────────────
 def is_randomized_mac(mac: str) -> bool:
     try:
-        first_byte = int(mac.split(':')[0], 16)
-        return bool(first_byte & 0x02)
+        return bool(int(mac.split(":")[0], 16) & 0x02)
     except Exception:
         return False
- 
- 
+
 def get_org(mac: str) -> str:
     try:
         import netaddr
@@ -100,224 +74,273 @@ def get_org(mac: str) -> str:
     except Exception:
         return "UNKNOWN"
 
-def is_phone_like(mac: str, org: str) -> bool:
-    """
-    Return True if this device is plausibly a phone/tablet.
-    Randomized MACs pass automatically (phones randomize; laptops generally don't).
-    Non-phone org keywords cause rejection.
-    """
+def is_phone_like(mac: str, org: str, settings: dict) -> bool:
     if is_randomized_mac(mac):
         return True
- 
-    org_lower = org.lower()
-    for kw in NON_PHONE_KEYWORDS:
-        if kw in org_lower:
+    ol = org.lower()
+    for kw in settings["non_phone_keywords"]:
+        if kw in ol:
             return False
- 
-    # If OUI is completely unknown, give it the benefit of the doubt —
-    # many cheap phone brands have obscure OUIs.
     return True
 
-    
-def report_to_aggregator(mac: str, rssi: int, org: str, randomized: bool):
+def should_ignore(mac: str, org: str, settings: dict) -> bool:
+    """Filter out junk but not edge devices.
+        Edge devices are for calibration so allow them through as ANCHOR reports
+        1. edge devices -> pass through (reported as ANCHOR, not as people)
+        2. blaclisted -> drop completely
+    """
+    # edge devices are always allowed
+    if mac in settings["edge_macs"]:
+        return False
+    if mac in settings["blacklisted_macs"]:
+        return True
+    prefix = ":".join(mac.split(":")[:3]).lower()
+    if prefix in settings["pi_ouis"]:
+        return True
+    if "raspberry" in org.lower():
+        return True
+    return False
+
+
+
+def report(mac: str, rssi: int, org: str, randomized: bool, settings: dict):
     try:
-        payload = {
-            "node":       NODE_ID,
-            "mac":        mac,
-            "rssi":       rssi,
-            "org":        org,
-            "randomized": randomized,
-        }
-        requests.post(AGGREGATOR_URL, json=payload, timeout=0.5)
+        requests.post(
+            settings["aggregator_url"],
+            json={
+                "node":       settings["node_id"],
+                "mac":        mac,
+                "rssi":       rssi,
+                "org":        org,
+                "randomized": randomized,
+                "timestamp":  datetime.now().isoformat(),
+            },
+            timeout=0.5,
+        )
     except Exception:
         pass
-
-def get_home_channel() -> int:
-    """Detect which channel wlan1 (WiFi) is on — stay there most of the time."""
+    
+# ── channel hopping ───────────────────────────────────────────────────
+def get_home_channel(home_iface: str) -> int:
     try:
-        out = subprocess.check_output(["iw", "dev", "wlan1", "info"], text=True)
+        out = subprocess.check_output(["iw", "dev", home_iface, "info"], text=True)
         for line in out.splitlines():
             if "channel" in line.lower():
                 return int(line.strip().split()[1])
     except Exception:
         pass
-    return 6  # safe fallback
+    return 6
 
-
-
-def channel_hopper(iface: str):
-    """Pattern: home -> ch1 -> home -> ch11 -> repeat"""
-    home = get_home_channel()
+def channel_hopper(iface: str, settings: dict):
+    hop      = settings["hopping"]
+    home_if  = hop["home_interface"]
+    home_dwell  = hop["home_dwell_sec"]
+    visit_dwell = hop["visit_dwell_sec"]
+ 
+    home  = get_home_channel(home_if)
     visit = [ch for ch in [1, 6, 11] if ch != home]
-    print(f"[HOP] Home channel: {home} | Visiting: {visit}", flush=True)
-
+    print(f"[HOP] Home ch:{home} | Visiting:{visit}", flush=True)
+ 
     def set_ch(ch):
         subprocess.run(
             ["iw", "dev", iface, "set", "channel", str(ch)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-
+ 
     while True:
-        set_ch(home);      time.sleep(0.40)
-        set_ch(visit[0]);  time.sleep(0.12)
-        set_ch(home);      time.sleep(0.40)
+        set_ch(home);      time.sleep(home_dwell)
+        set_ch(visit[0]);  time.sleep(visit_dwell)
+        set_ch(home);      time.sleep(home_dwell)
         if len(visit) > 1:
-            set_ch(visit[1]); time.sleep(0.12)
+            set_ch(visit[1]); time.sleep(visit_dwell)
 
-
-def found_device(logger, mac: str, rssi: int, org: str, randomized: bool):
-    global segment_start, in_calibration
+            
+# ───────────────────core detection──────────────────────────────────────────────────────────
  
-    now = datetime.now()
- 
-    if segment_start is None:
-        segment_start = now
+class ProbeState:
+    def __init__(self, settings: dict):
+        self.s            = settings
+        self.devices      = {}       # mac -> True (seen this segment)
+        self.last_seen    = {}       # mac -> datetime
+        self.active_groups = []      # [{rssi, time}] for MAC rotation detection
+        self.segment_start = None
 
-    #came back later gets counted again
-    if now - segment_start > DEVICE_TTL:
+    def reset_segment(self):
         print(
-            f"\n── Segment reset. Unique this window: {len(devices)} ──",
+            f"\n── Segment reset. Unique this window: {len(self.devices)} ──",
             flush=True,
-        )  
-        devices.clear()
-        active_groups.clear()
-        segment_start = now
+        )
+        self.devices.clear()
+        self.active_groups.clear()
+        self.segment_start = datetime.now()
 
-    #per mac rate limiting
-    if mac in last_seen and (now - last_seen[mac]).total_seconds() < PER_MAC_COOLDOWN:
-        return
+    def process(self, mac: str, rssi: int, org: str, randomized: bool, logger) -> bool:
+        """
+        Returns True if this probe should be forwarded to the aggregator.
+        Handles rate limiting and MAC rotation grouping internally.
+        """
+        now      = datetime.now()
+        s        = self.s
+        is_known = mac in self.last_seen
 
-    #mac rotation detection:
-    for group in active_groups:
-        time_diff = (now - group['time']).total_seconds()
-        rssi_diff = abs(rssi - group['rssi'])
-        if time_diff < GROUP_WINDOW_SEC and rssi_diff <= RSSI_TOLERANCE:
-            group['time'] = now   # refresh the group window
-            return
+        if self.segment_start is None:
+            self.segment_start = now
 
-    # hard floor: ignore devices far away
-    if rssi < RSSI_FLOOR:
-        return
+        # rolling window reset
+        if now - self.segment_start > timedelta(minutes=s["device_ttl_min"]):
+            self.reset_segment()
 
-    #record this device
-    devices[mac] = True
-    last_seen[mac] = now
-    active_groups.append({'rssi': rssi, 'time': now})
+        if is_known:
+            #same mac returning - do not touch rotation groups
+            if (now - self.last_seen[mac]).total_seconds() < s["per_mac_cooldown"]:
+                return False
+        else:
+        # brand new mac - check if it looks like a rotation of a known device
+        # MAC rotation detection — same physical device, rotating random MAC
+            for group in self.active_groups:
+                time_diff = (now - group["time"]).total_seconds()
+                rssi_diff = abs(rssi - group["rssi"])
+                if time_diff < s["merge_window_sec"] and rssi_diff <= s["rssi_tolerance"]:
+                    group["time"] = now  # refresh group
+                    return False         # same device, skip
 
-    # prune expired groups
-    active_groups[:] = [
-        g for g in active_groups
-        if (now - g['time']).total_seconds() < GROUP_WINDOW_SEC * 2
-    ]
+        # hard RSSI floor
+        if rssi < s["rssi_floor"]:
+            return False
 
-    # forward to local sensor pi
-    report_to_aggregator(mac, rssi, org, randomized)
-     
-    ts         = now.strftime('%H:%M:%S')
-    zone_label = "CLOSE " if rssi >= -40 else "NEARBY"
-    label      = "~rand" if randomized else org[:24]
-    output     = f"[{ts}] {zone_label} | {rssi:>4}dBm | {mac} | {label}"
-    print(output, flush=True)
-    logger.info(output)
+        # record
+        self.devices[mac] = True
+        self.last_seen[mac] = now
+        if not is_known:
+            #only create a new group entry for first sighting of this mac
+            self.active_groups.append({"rssi": rssi, "time": now})
+   
+
+        #prune expired groups
+        self.active_groups[:] = [
+            g for g in self.active_groups
+            if (now - g["time"]).total_seconds() < s["merge_window_sec"] * 2
+        ]
+
+        ts    = now.strftime("%H:%M:%S")
+        zone  = "CLOSE " if rssi >= -40 else "NEARBY"
+        label = "~rand" if randomized else org[:24]
+        line  = f"[{ts}] {zone} | {rssi:>4}dBm | {mac} | {label}"
+        print(line, flush=True)
+        logger.info(line)
+ 
+        return True
+# ── packet callback ─────────────────────────────────────────────────────────────────────
+def build_callback(logger, state: ProbeState, settings: dict):
+    start_time     = datetime.now()
+    calibration    = timedelta(seconds=settings["calibration_sec"])
+    in_calibration = [True] 
 
 
-def build_packet_callback(logger):
-    def packet_callback(packet):
-        global in_calibration
+    def callback(packet):
         try:
             if not packet.haslayer(Dot11):
                 return
             if packet.type != 0 or packet.subtype != 0x04:
                 return
 
-            mac = packet.addr2
+            mac  = packet.addr2
             rssi = packet.dBm_AntSignal
 
             if not mac:
                 return
 
-            mac_lower = mac.lower()
+            mac = mac.lower()
 
-            #hard blacklist
-            if mac_lower in BLACKLIST_MACS:
+            if should_ignore(mac, "", settings):
+                return
+
+            # edge device Pi - report as ANCHOR beacon for calibration reference
+            if mac in settings["edge_macs"]:
+                label = settings["edge_macs"][mac]
+                report(mac, rssi, f"ANCHOR:{label}", False, settings)
                 return
 
             randomized = is_randomized_mac(mac)
+            org        = "RANDOMIZED" if randomized else get_org(mac)
 
-            #check if this is a known listener Pi
-            if mac_lower in LISTENER_PI_MACS:
-                listener_name = LISTENER_PI_MACS[mac_lower]
-                # Report it as a special org so sensor.py can track it as an anchor
-                report_to_aggregator(mac, rssi, f"ANCHOR:{listener_name}", randomized=False)
+            if not randomized and not is_phone_like(mac, org, settings):
                 return
 
-            org = "RANDOMIZED" if randomized else get_org(mac)
-
-            # phone filter
-            if not randomized and not is_phone_like(mac, org):
-                return
-
-            # calibration period
-            if in_calibration:
+            # calibration warm up
+            if in_calibration[0]:
                 print(".", end="", flush=True)
-                if (datetime.now() - start_time) > CALIBRATION_TIME:
-                    in_calibration = False
+                if (datetime.now() - start_time) > calibration:
+                    in_calibration[0] = False
                     print(
-                        f"\n── MainBrain ACTIVE | Floor: {RSSI_FLOOR}dBm | "
-                        f"Rotation window: {GROUP_WINDOW_SEC}s / ±{RSSI_TOLERANCE}dBm ──\n",
+                        f"\n── {settings['node_id']} ACTIVE | "
+                        f"Floor:{settings['rssi_floor']}dBm | "
+                        f"Merge window:{settings['merge_window_sec']}s ──\n",
                         flush=True,
                     )
                 return
 
-            found_device(logger, mac, rssi, org, randomized)
+            if state.process(mac, rssi, org, randomized, logger):
+                report(mac, rssi, org, randomized, settings)
 
         except Exception:
             pass
 
-    return packet_callback
+    return callback
+    
+# ── main ─────────────────────────────────────────────────────────────────────
 
-def signal_handler(sig, frame):
-    print(f"\n[{NODE_ID}] Shutting down. Unique devices this session: {len(devices)}")
-    os._exit(0)
- 
- 
-signal.signal(signal.SIGINT, signal_handler)
 
- 
- 
 def main():
-    parser = argparse.ArgumentParser(description="Brain Pi local probe scanner")
+    parser = argparse.ArgumentParser(description="Probe Mesh — Local Collector")
     parser.add_argument(
-        '-i', '--interface', required=True,
-        help="Monitor-mode wireless interface (e.g. wlan0mon)",
+        "-i", "--interface", required=True,
+        help="Monitor-mode wireless interface (e.g. mon0)"
+    )
+    parser.add_argument(
+        "--config", default=cfg_mod.CONFIG_PATH, metavar="PATH",
+        help=f"Path to config.json (default: {cfg_mod.CONFIG_PATH})"
     )
     args = parser.parse_args()
  
-    logger = logging.getLogger("newprobemon")
+    cfg      = cfg_mod.load(args.config)
+    settings = build_settings(cfg)
+    iface    = args.interface
+ 
+    # logger
+    logger = logging.getLogger("probemon")
     logger.setLevel(logging.INFO)
     logger.addHandler(
-        RotatingFileHandler('newprobemon.log', maxBytes=5_000_000, backupCount=3)
+        RotatingFileHandler("probemon.log", maxBytes=5_000_000, backupCount=3)
     )
 
-    print(f"── [{NODE_ID}] Starting {CALIBRATION_TIME.seconds}s calibration... ──", flush=True)
-    print(f"── Weighted channel hopping on {args.interface} ──", flush=True)
-    print(f"── RSSI floor: {RSSI_FLOOR}dBm | MAC rotation window: {GROUP_WINDOW_SEC}s ──", flush=True)
-    if LISTENER_PI_MACS:
-        print(f"── Listener anchor MACs registered: {list(LISTENER_PI_MACS.values())} ──", flush=True)
-    else:
-        print("── No Listener Pi anchor MACs configured (optional) ──", flush=True)
+    print(f"── [{settings['node_id']}] Starting {settings['calibration_sec']}s calibration ──", flush=True)
+    print(f"── Interface: {iface} | Aggregator: {settings['aggregator_url']} ──", flush=True)
+    print(f"── RSSI floor: {settings['rssi_floor']}dBm | "
+          f"Merge: {settings['merge_window_sec']}s ±{settings['rssi_tolerance']}dBm ──", flush=True)
+    print(f"── Blacklisted MACs: {len(settings['blacklisted_macs'])} ──", flush=True)
+ 
+    # channel hopper
+    threading.Thread(
+        target=channel_hopper, args=(iface, settings), daemon=True
+    ).start()
 
-    # start channel hopper as well
-    threading.Thread(target=channel_hopper, args=(args.interface,), daemon=True).start()
-     
-    callback = build_packet_callback(logger)
+    state    = ProbeState(settings)
+    callback = build_callback(logger, state, settings)
 
-    # main sniff loop
+    def handle_exit(sig, frame):
+        print(f"\n[{settings['node_id']}] Shutting down. "
+              f"Unique devices this session: {len(state.devices)}")
+        os._exit(0)
+
+    signal.signal(signal.SIGINT, handle_exit)
+
     while True:
         try:
-            sniff(iface=args.interface, prn=callback, store=0, timeout=5)
+            sniff(iface=iface, prn=callback, store=0, timeout=5)
         except Exception:
             continue
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
