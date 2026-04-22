@@ -217,7 +217,7 @@ threshold computation. The calibration result will show
 ## Known limitations
 
 **Randomized MAC churn**
-Modern iOS and Android devices use MAC aeddress randomization during Wi-Fi probe scanning. 
+Modern iOS and Android devices use MAC address randomization during Wi-Fi probe scanning. 
 As a result, a single physical phone may appear as multiple MAC addresses over time.
 The scripts apply time and signal-based merging to reduce duplication, but this cannot
 fully eliminate MAC churn, especially in crowded environments.
