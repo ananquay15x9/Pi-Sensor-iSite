@@ -35,7 +35,20 @@ def log(msg: str, log_file: str):
     except Exception:
         pass
 
-# ── HTTP transport# ──
+# ── local transport layer ──
+# 1. Internal transport:
+#    probemon.py sends probe events via POST /report.
+#    This is the ONLY ingestion path into engine.process_event().
+#    It must always be available (bound to 127.0.0.1).
+#
+# 2. Optional debug/API layer:
+#    GET endpoints (/status, /devices, /dashboard, etc.)
+#    are used for debugging and visualization.
+#    These can be disabled or restricted without affecting core operation.
+#
+# Note:
+# This is NOT a public server in production. It is used as a local
+# inter-process communication (IPC) mechanism.
 def make_handler(engine: Engine, cfg: dict):
     log_file = cfg["device"]["log_file"]
 
